@@ -43,19 +43,19 @@ st.markdown("""
 
     /* Result cards */
     .result-card {
-        border: 1px solid #e0e0e0;
+        border: 1px solid var(--faded-text-color, #e0e0e0);
         border-radius: 12px;
         padding: 1.25rem;
         margin: 0.75rem 0;
-        background: #fafafa;
+        background: var(--secondary-background-color, #fafafa);
+        color: var(--text-color, #000000);
     }
-    .result-card.dark { background: #1a1a2e; border-color: #333; }
     .result-label {
         font-size: 0.75rem;
         font-weight: 600;
         text-transform: uppercase;
         letter-spacing: 0.05em;
-        color: #888;
+        color: var(--faded-text-color, #888888);
         margin-bottom: 0.5rem;
     }
     .result-text {
@@ -153,7 +153,8 @@ def transcribe_audio(audio_path: str, api_key: str) -> dict:
         response = client.audio.transcriptions.create(
             model="whisper-1",
             file=audio_file,
-            prompt="Wakha, danya hanya, bghit, bezzaf, chwiya, mezian, khouya, sahbi, oui, d'accord, c'est bon, merci", # Guide Whisper for Darija/French
+            language="ar",  # Forcing Arabic prevents Whisper from misidentifying Darija as French/Spanish
+            prompt="Wakha, danya hanya, bghit, bezzaf, chwiya, mezian, khouya, sahbi, oui, d'accord, c'est bon, merci, chouf, brit, daba, maghrib, darija", # Guide Whisper for Darija/French
             response_format="verbose_json",
             timestamp_granularities=["segment"],
         )
