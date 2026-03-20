@@ -153,7 +153,7 @@ def transcribe_audio(audio_path: str, api_key: str) -> dict:
         response = client.audio.transcriptions.create(
             model="whisper-1",
             file=audio_file,
-            language="ar",  # Arabic (closest to Darija)
+            prompt="Wakha, danya hanya, bghit, bezzaf, chwiya, mezian, khouya, sahbi, oui, d'accord, c'est bon, merci", # Guide Whisper for Darija/French
             response_format="verbose_json",
             timestamp_granularities=["segment"],
         )
@@ -201,6 +201,17 @@ You understand the unique characteristics of Darija including:
 - Moroccan idioms, proverbs, and cultural expressions
 - Regional variations across Morocco
 
+CRITICALLY IMPORTANT: The input text is a machine transcription (from Whisper) and may contain errors. 
+Whisper often mishears Darija words or hallucinates Standard Arabic (MSA) words that sound similar. 
+You must use your knowledge of Darija context to infer the *intended* meaning and silently correct transcription errors before translating.
+
+Examples of Darija translation:
+- "شنو درتي البارح؟" -> "What did you do yesterday?"
+- "راه مشى بحالو" -> "He has already left."
+- "واخا، غادي نمشي دابا" -> "Okay, I'll go now."
+- "صافي، مزيان" -> "Alright, good (or fine)."
+- "سي بون" (C'est bon) -> "It's good/okay."
+
 Your translation style should be: {formality}
 
 Respond ONLY with valid JSON (no markdown, no backticks) in this exact format:
@@ -219,6 +230,7 @@ Respond ONLY with valid JSON (no markdown, no backticks) in this exact format:
         message = client.messages.create(
             model=model,
             max_tokens=1024,
+            temperature=0.1,
             system=system_prompt,
             messages=[
                 {
@@ -235,6 +247,7 @@ Respond ONLY with valid JSON (no markdown, no backticks) in this exact format:
         
         message = client.chat.completions.create(
             model="gpt-4o",
+            temperature=0.1,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": f"Translate this Darija text to English:\n\n{darija_text}"}
@@ -277,7 +290,9 @@ def translate_segments(
         message = client.messages.create(
             model="claude-3-5-sonnet-latest",
             max_tokens=2048,
-            system=f"""You are an expert Darija-to-English translator. Translate each numbered line.
+            temperature=0.1,
+            system=f"""You are an expert Darija-to-English translator. The input is a transcription that may contain errors (e.g., misheard Darija or hallucinated Standard Arabic). Correct these silently based on context.
+Translate each numbered line.
 Translation style: {formality}
 Respond ONLY with valid JSON (no markdown): a JSON array of objects with "index" and "translation" fields.""",
             messages=[
@@ -295,8 +310,10 @@ Respond ONLY with valid JSON (no markdown): a JSON array of objects with "index"
         
         message = client.chat.completions.create(
             model="gpt-4o",
+            temperature=0.1,
             messages=[
-                {"role": "system", "content": f"""You are an expert Darija-to-English translator. Translate each numbered line.
+                {"role": "system", "content": f"""You are an expert Darija-to-English translator. The input is a transcription that may contain errors (e.g., misheard Darija or hallucinated Standard Arabic). Correct these silently based on context.
+Translate each numbered line.
 Translation style: {formality}
 Respond ONLY with valid JSON (no markdown): a JSON array of objects with "index" and "translation" fields."""},
                 {"role": "user", "content": f"Translate each line:\n\n{segments_text}"}
