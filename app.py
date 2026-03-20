@@ -104,14 +104,20 @@ with st.sidebar:
         placeholder="sk-...",
     )
     anthropic_key = st.text_input(
-        "Anthropic API Key",
+        "Anthropic API Key (Optional)",
         type="password",
-        help="For Claude translation. Get one at console.anthropic.com",
+        help="For Claude translation. If not provided, the app will use OpenAI GPT-4o instead.",
         placeholder="sk-ant-...",
     )
 
     st.divider()
     st.subheader("Translation options")
+    translation_engine = st.radio(
+        "Translation engine",
+        options=["OpenAI (GPT-4o)", "Anthropic (Claude)"],
+        index=0 if not anthropic_key else 1,
+        help="OpenAI uses only your OpenAI key. Anthropic requires a separate key.",
+    )
     formality = st.select_slider(
         "Translation style",
         options=["Very casual", "Casual", "Neutral", "Formal", "Very formal"],
@@ -167,20 +173,18 @@ def transcribe_audio(audio_path: str, api_key: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Helper: Translate Darija text to English with Claude
+# Helper: Translate Darija text to English
 # ---------------------------------------------------------------------------
 def translate_darija(
     darija_text: str,
-    api_key: str,
+    openai_key: str,
+    anthropic_key: str = None,
+    engine: str = "OpenAI (GPT-4o)",
     formality: str = "Neutral",
     include_transliteration: bool = True,
     include_context: bool = True,
 ) -> dict:
-    """Translate Darija text to English using Claude."""
-    import anthropic
-
-    client = anthropic.Anthropic(api_key=api_key)
-
+    """Translate Darija text to English using either Claude or GPT-4o."""
     # Build the prompt with optional sections
     optional_sections = ""
     if include_transliteration:
@@ -206,19 +210,37 @@ Respond ONLY with valid JSON (no markdown, no backticks) in this exact format:
     "confidence": "high/medium/low"{f',{optional_sections}' if optional_sections else ''}
 }}"""
 
-    message = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=1024,
-        system=system_prompt,
-        messages=[
-            {
-                "role": "user",
-                "content": f"Translate this Darija text to English:\n\n{darija_text}",
-            }
-        ],
-    )
+    if engine == "Anthropic (Claude)" and anthropic_key:
+        import anthropic
 
-    response_text = message.content[0].text
+        client = anthropic.Anthropic(api_key=anthropic_key)
+        model = "claude-3-5-sonnet-latest"
+        
+        message = client.messages.create(
+            model=model,
+            max_tokens=1024,
+            system=system_prompt,
+            messages=[
+                {
+                    "role": "user",
+                    "content": f"Translate this Darija text to English:\n\n{darija_text}",
+                }
+            ],
+        )
+        response_text = message.content[0].text
+    else:
+        # Default to OpenAI GPT-4o
+        from openai import OpenAI
+        client = OpenAI(api_key=openai_key)
+        
+        message = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"Translate this Darija text to English:\n\n{darija_text}"}
+            ]
+        )
+        response_text = message.choices[0].message.content
 
     try:
         return json.loads(response_text)
@@ -235,33 +257,52 @@ Respond ONLY with valid JSON (no markdown, no backticks) in this exact format:
 # Helper: Translate with timestamps (for subtitles)
 # ---------------------------------------------------------------------------
 def translate_segments(
-    segments: list, api_key: str, formality: str = "Neutral"
+    segments: list, 
+    openai_key: str, 
+    anthropic_key: str = None, 
+    engine: str = "OpenAI (GPT-4o)", 
+    formality: str = "Neutral"
 ) -> list:
     """Translate each segment individually for subtitle-style output."""
-    import anthropic
-
-    client = anthropic.Anthropic(api_key=api_key)
 
     # Batch all segments into one call for efficiency
     segments_text = "\n".join(
         f"[{i}] {seg['text']}" for i, seg in enumerate(segments)
     )
 
-    message = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=2048,
-        system=f"""You are an expert Darija-to-English translator. Translate each numbered line.
+    if engine == "Anthropic (Claude)" and anthropic_key:
+        import anthropic
+        client = anthropic.Anthropic(api_key=anthropic_key)
+        
+        message = client.messages.create(
+            model="claude-3-5-sonnet-latest",
+            max_tokens=2048,
+            system=f"""You are an expert Darija-to-English translator. Translate each numbered line.
 Translation style: {formality}
 Respond ONLY with valid JSON (no markdown): a JSON array of objects with "index" and "translation" fields.""",
-        messages=[
-            {
-                "role": "user",
-                "content": f"Translate each line:\n\n{segments_text}",
-            }
-        ],
-    )
-
-    response_text = message.content[0].text
+            messages=[
+                {
+                    "role": "user",
+                    "content": f"Translate each line:\n\n{segments_text}",
+                }
+            ],
+        )
+        response_text = message.content[0].text
+    else:
+        # OpenAI fallback
+        from openai import OpenAI
+        client = OpenAI(api_key=openai_key)
+        
+        message = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": f"""You are an expert Darija-to-English translator. Translate each numbered line.
+Translation style: {formality}
+Respond ONLY with valid JSON (no markdown): a JSON array of objects with "index" and "translation" fields."""},
+                {"role": "user", "content": f"Translate each line:\n\n{segments_text}"}
+            ]
+        )
+        response_text = message.choices[0].message.content
     try:
         translations = json.loads(response_text)
     except json.JSONDecodeError:
@@ -355,8 +396,8 @@ if audio_path:
         if not openai_key:
             st.error("Please add your OpenAI API key in the sidebar.")
             st.stop()
-        if not anthropic_key:
-            st.error("Please add your Anthropic API key in the sidebar.")
+        if translation_engine == "Anthropic (Claude)" and not anthropic_key:
+            st.error("Please add your Anthropic API key to use Claude.")
             st.stop()
 
         # Step 1: Transcribe
@@ -390,7 +431,9 @@ if audio_path:
                     st.write("Sending to Claude for translation...")
                     result = translate_darija(
                         transcription["text"],
+                        openai_key,
                         anthropic_key,
+                        translation_engine,
                         formality,
                         include_transliteration,
                         include_context,
@@ -454,7 +497,11 @@ if audio_path:
                         f"Translating {len(transcription['segments'])} segments..."
                     )
                     translated_segments = translate_segments(
-                        transcription["segments"], anthropic_key, formality
+                        transcription["segments"], 
+                        openai_key, 
+                        anthropic_key, 
+                        translation_engine, 
+                        formality
                     )
                     status.update(label="✅ Subtitles ready", state="complete")
                 except Exception as e:
